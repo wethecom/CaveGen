@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Cave System with Capped Ends and Node Adjustments</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #customTexture, #nodeRadius, #branchTension {
+            width: 200px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <button id="adjustTextureBtn">Adjust Texture</button>
+        <br>
+        <button id="randomBtn">Generate Random Cave System</button>
+        <button id="addPointBtn">Add Point After Selected</button>
+        <button id="addBranchBtn">Add Branch from Selected</button>
+        <button id="exportBtn">Export to GLB</button>
+        <br>
+        <label for="nodeRadius">Node Radius (live):</label>
+        <input type="number" id="nodeRadius" step="0.1" min="0.1" value="0.5">
+        <br>
+        <label for="branchTension">Branch Tension (live):</label>
+        <input type="number" id="branchTension" step="0.1" min="0" max="1" value="0.5">
+        <br>
+        <input type="checkbox" id="wireframe"> Wireframe Mode (for editing)
+        <p>Click a red sphere to select a control point (turns green).</p>
+    </div>
+
+    <div id="textureModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000;">
+        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:20px; border-radius:5px; width:600px;">
+            <h3>Texture Properties</h3>
+            <div>
+                <h4>Floor Texture</h4>
+                <label for="floorTextureSelect">Choose Preset Texture:</label>
+                <select id="floorTextureSelect">
+                    <option value="https://ambientcg.com/get?file=Ground037_1K-JPG_Color.jpg">Dirt</option>
+                    <option value="https://ambientcg.com/get?file=Rock029_1K-JPG_Color.jpg">Rock</option>
+                    <option value="https://ambientcg.com/get?file=Rock022_1K-JPG_Color.jpg">Cave Wall</option>
+                </select>
+                <br>
+                <label for="floorCustomTexture">Or Enter Custom Texture URL:</label>
+                <input type="text" id="floorCustomTexture" placeholder="Enter texture URL">
+                <button id="loadFloorCustom">Load Custom</button>
+                <br>
+                <label for="floorRepeatU">Repeat U:</label>
+                <input type="number" id="floorRepeatU" step="0.1" value="10">
+                <label for="floorRepeatV">Repeat V:</label>
+                <input type="number" id="floorRepeatV" step="0.1" value="10">
+            </div>
+            <div>
+                <h4>Wall Texture</h4>
+                <label for="wallTextureSelect">Choose Preset Texture:</label>
+                <select id="wallTextureSelect">
+                    <option value="https://ambientcg.com/get?file=Rock022_1K-JPG_Color.jpg">Cave Wall</option>
+                    <option value="https://ambientcg.com/get?file=Rock029_1K-JPG_Color.jpg">Rock</option>
+                    <option value="https://ambientcg.com/get?file=Ground037_1K-JPG_Color.jpg">Dirt</option>
+                </select>
+                <br>
+                <label for="wallCustomTexture">Or Enter Custom Texture URL:</label>
+                <input type="text" id="wallCustomTexture" placeholder="Enter texture URL">
+                <button id="loadWallCustom">Load Custom</button>
+                <br>
+                <label for="wallRepeatU">Repeat U:</label>
+                <input type="number" id="wallRepeatU" step="0.1" value="10">
+                <label for="wallRepeatV">Repeat V:</label>
+                <input type="number" id="wallRepeatV" step="0.1" value="10">
+            </div>
+            <div>
+                <h4>Roof Texture</h4>
+                <label for="roofTextureSelect">Choose Preset Texture:</label>
+                <select id="roofTextureSelect">
+                    <option value="https://ambientcg.com/get?file=Rock029_1K-JPG_Color.jpg">Rock</option>
+                    <option value="https://ambientcg.com/get?file=Ground037_1K-JPG_Color.jpg">Dirt</option>
+                    <option value="https://ambientcg.com/get?file=Rock022_1K-JPG_Color.jpg">Cave Wall</option>
+                </select>
+                <br>
+                <label for="roofCustomTexture">Or Enter Custom Texture URL:</label>
+                <input type="text" id="roofCustomTexture" placeholder="Enter texture URL">
+                <button id="loadRoofCustom">Load Custom</button>
+                <br>
+                <label for="roofRepeatU">Repeat U:</label>
+                <input type="number" id="roofRepeatU" step="0.1" value="10">
+                <label for="roofRepeatV">Repeat V:</label>
+                <input type="number" id="roofRepeatV" step="0.1" value="10">
+            </div>
+            <button id="applyTextureBtn">Apply</button>
+            <button id="closeModalBtn">Close</button>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.168.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.168.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { DragControls } from 'three/addons/controls/DragControls.js';
+        import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 5, 5);
+        const target = new THREE.Object3D();
+        target.position.set(0, 0, -1);
+        directionalLight.add(target);
+        directionalLight.target = target;
+        scene.add(directionalLight);
+
+        // Controls
+        const orbitControls = new OrbitControls(camera, renderer.domElement);
+        camera.position.set(0, 0, 20);
+
+        // Materials
+        const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x808080, side: THREE.DoubleSide });
+        const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x808080, side: THREE.DoubleSide });
+        const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x808080, side: THREE.DoubleSide });
+
+        // Cave branches: array of {points: [Vector3], radii: [number], tension: number, mesh: Mesh, spheres: [Mesh], line: Line}
+        let branches = [];
+        let caps = [];
+        let selectedSphere = null;
+        let selectedBranchIndex = -1;
+        let selectedPointIndex = -1;
+
+        const sphereMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false });
+        const selectedSphereMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, depthTest: false });
+
+        // Raycaster for selection
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // 1D Catmull-Rom interpolation for smooth radius
+        function catmullRomInterp(t, p0, p1, p2, p3) {
+            const v0 = (p2 - p0) * 0.5;
+            const v1 = (p3 - p1) * 0.5;
+            const t2 = t * t;
+            const t3 = t * t2;
+            return (2 * p1 - 2 * p2 + v0 + v1) * t3 + (-3 * p1 + 3 * p2 - 2 * v0 - v1) * t2 + v0 * t + p1;
+        }
+
+        // Function to get radius at t with smooth interpolation
+        function getRadiusAt(branch, t) {
+            const len = branch.points.length - 1;
+            if (len === 0) return branch.radii[0] || 0.5;
+            const idx = t * len;
+            const floor = Math.floor(idx);
+            const frac = idx - floor;
+            const p0 = branch.radii[Math.max(floor - 1, 0)];
+            const p1 = branch.radii[floor];
+            const p2 = branch.radii[Math.min(floor + 1, len)];
+            const p3 = branch.radii[Math.min(floor + 2, len)];
+            return catmullRomInterp(frac, p0, p1, p2, p3);
+        }
+
+        // Function to create a custom tube mesh with variable radius and multiple materials
+        function createTubeMesh(branch) {
+            const curve = new THREE.CatmullRomCurve3(branch.points, false, 'catmullrom', branch.tension);
+            const numSegments = 100;
+            const numRadial = 20;
+            const pathPoints = curve.getPoints(numSegments);
+            const tangents = [];
+            for (let i = 0; i <= numSegments; i++) {
+                tangents.push(curve.getTangent(i / numSegments).normalize());
+            }
+
+            // Initialize Frenet frames
+            let normals = new Array(numSegments + 1);
+            let binormals = new Array(numSegments + 1);
+
+            normals[0] = new THREE.Vector3(0, 1, 0).cross(tangents[0]).normalize();
+            if (normals[0].lengthSq() === 0) normals[0] = new THREE.Vector3(1, 0, 0).cross(tangents[0]).normalize();
+            binormals[0] = tangents[0].clone().cross(normals[0]).normalize();
+
+            for (let i = 1; i <= numSegments; i++) {
+                const cross = tangents[i - 1].clone().cross(tangents[i]);
+                if (cross.lengthSq() < 1e-8) {
+                    normals[i] = normals[i - 1].clone();
+                } else {
+                    const v = cross.normalize();
+                    const theta = Math.acos(tangents[i - 1].dot(tangents[i]));
+                    normals[i] = normals[i - 1].clone().applyAxisAngle(v, theta);
+                }
+                binormals[i] = tangents[i].clone().cross(normals[i]).normalize();
+            }
+
+            const vertices = [];
+            const indices = [];
+            const uvs = [];
+
+            for (let i = 0; i <= numSegments; i++) {
+                const radius = getRadiusAt(branch, i / numSegments);
+                for (let j = 0; j < numRadial; j++) {
+                    const theta = (j / numRadial) * Math.PI * 2;
+                    const cosTheta = Math.cos(theta);
+                    const sinTheta = Math.sin(theta);
+                    const normal = normals[i].clone().multiplyScalar(cosTheta).add(binormals[i].clone().multiplyScalar(sinTheta));
+                    const vertex = pathPoints[i].clone().add(normal.multiplyScalar(radius));
+                    vertices.push(vertex.x, vertex.y, vertex.z);
+                    uvs.push(j / numRadial, i / numSegments);
+                }
+            }
+
+            for (let i = 0; i < numSegments; i++) {
+                for (let j = 0; j < numRadial; j++) {
+                    const a = i * numRadial + j;
+                    const b = i * numRadial + (j + 1) % numRadial;
+                    const c = (i + 1) * numRadial + (j + 1) % numRadial;
+                    const d = (i + 1) * numRadial + j;
+                    indices.push(a, b, d);
+                    indices.push(b, c, d);
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+            geometry.setIndex(indices);
+
+            // Assign material groups based on normals
+            let start = 0;
+            for (let i = 0; i < numSegments; i++) {
+                for (let j = 0; j < numRadial; j++) {
+                    const normalA = normals[i].clone().multiplyScalar(Math.cos((j / numRadial) * Math.PI * 2)).add(binormals[i].clone().multiplyScalar(Math.sin((j / numRadial) * Math.PI * 2)));
+                    const normalB = normals[i].clone().multiplyScalar(Math.cos(((j + 1) / numRadial) * Math.PI * 2)).add(binormals[i].clone().multiplyScalar(Math.sin(((j + 1) / numRadial) * Math.PI * 2)));
+                    const normalC = normals[i + 1].clone().multiplyScalar(Math.cos(((j + 1) / numRadial) * Math.PI * 2)).add(binormals[i + 1].clone().multiplyScalar(Math.sin(((j + 1) / numRadial) * Math.PI * 2)));
+                    const normalD = normals[i + 1].clone().multiplyScalar(Math.cos((j / numRadial) * Math.PI * 2)).add(binormals[i + 1].clone().multiplyScalar(Math.sin((j / numRadial) * Math.PI * 2)));
+                    const avgNormalY = (normalA.y + normalB.y + normalC.y + normalD.y) / 4;
+                    let materialIndex;
+                    if (avgNormalY < -0.5) {
+                        materialIndex = 0; // floor
+                    } else if (avgNormalY > 0.5) {
+                        materialIndex = 2; // roof
+                    } else {
+                        materialIndex = 1; // wall
+                    }
+                    geometry.addGroup(start, 6, materialIndex);
+                    start += 6;
+                }
+            }
+
+            geometry.computeVertexNormals();
+            return new THREE.Mesh(geometry, [floorMaterial, wallMaterial, roofMaterial]);
+        }
+
+        // Function to create spline line
+        function createSplineLine(branch) {
+            const curve = new THREE.CatmullRomCurve3(branch.points, false, 'catmullrom', branch.tension);
+            const lineGeo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(50));
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
+            return new THREE.Line(lineGeo, lineMat);
+        }
+
+        // Function to add a branch
+        function addBranch(points, randomize = true) {
+            const radii = new Array(points.length).fill(0.5);
+            if (randomize) {
+                for (let i = 0; i < radii.length; i++) {
+                    radii[i] += (Math.random() - 0.5) * 0.4;
+                    radii[i] = Math.max(0.1, radii[i]);
+                }
+            }
+            const tension = 0.5 + (Math.random() - 0.5) * 0.2;
+            const mesh = createTubeMesh({points, radii, tension});
+            const line = createSplineLine({points, tension});
+            const sphereGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+            const spheres = points.map(p => {
+                const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial.clone());
+                sphere.position.copy(p);
+                scene.add(sphere);
+                return sphere;
+            });
+            scene.add(mesh);
+            scene.add(line);
+            return {points, radii, tension, mesh, spheres, line};
+        }
+
+        // Update a specific branch
+        function updateBranch(index) {
+            const branch = branches[index];
+            scene.remove(branch.mesh);
+            scene.remove(branch.line);
+            branch.mesh = createTubeMesh(branch);
+            branch.line = createSplineLine(branch);
+            scene.add(branch.mesh);
+            scene.add(branch.line);
+        }
+
+        // Function to rebuild caps
+        function rebuildCaps() {
+            caps.forEach(c => scene.remove(c));
+            caps = [];
+            const pointCounts = new Map();
+            for (let branch of branches) {
+                const startKey = `${branch.points[0].x.toFixed(6)},${branch.points[0].y.toFixed(6)},${branch.points[0].z.toFixed(6)}`;
+                const endKey = `${branch.points[branch.points.length - 1].x.toFixed(6)},${branch.points[branch.points.length - 1].y.toFixed(6)},${branch.points[branch.points.length - 1].z.toFixed(6)}`;
+                pointCounts.set(startKey, (pointCounts.get(startKey) || 0) + 1);
+                pointCounts.set(endKey, (pointCounts.get(endKey) || 0) + 1);
+            }
+            for (let branch of branches) {
+                const curve = new THREE.CatmullRomCurve3(branch.points, false, 'catmullrom', branch.tension);
+                const startPoint = branch.points[0];
+                const endPoint = branch.points[branch.points.length - 1];
+                const startKey = `${startPoint.x.toFixed(6)},${startPoint.y.toFixed(6)},${startPoint.z.toFixed(6)}`;
+                const endKey = `${endPoint.x.toFixed(6)},${endPoint.y.toFixed(6)},${endPoint.z.toFixed(6)}`;
+                if (pointCounts.get(startKey) === 1) {
+                    let tangent = curve.getTangent(0).normalize();
+                    const radius = getRadiusAt(branch, 0);
+                    const circleGeo = new THREE.CircleGeometry(radius, 20);
+                    const startCap = new THREE.Mesh(circleGeo, wallMaterial);
+                    startCap.position.copy(startPoint);
+                    startCap.lookAt(startPoint.clone().sub(tangent));
+                    scene.add(startCap);
+                    caps.push(startCap);
+                }
+                if (pointCounts.get(endKey) === 1) {
+                    let tangent = curve.getTangent(1).normalize();
+                    const radius = getRadiusAt(branch, 1);
+                    const circleGeo = new THREE.CircleGeometry(radius, 20);
+                    const endCap = new THREE.Mesh(circleGeo, wallMaterial);
+                    endCap.position.copy(endPoint);
+                    endCap.lookAt(endPoint.clone().add(tangent));
+                    scene.add(endCap);
+                    caps.push(endCap);
+                }
+            }
+        }
+
+        // Initial cave
+        const initialPoints = [
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(2, 1, 3),
+            new THREE.Vector3(4, -2, 1),
+            new THREE.Vector3(6, 0, -2),
+            new THREE.Vector3(8, 3, 0)
+        ];
+        branches.push(addBranch(initialPoints, false));  // No random for initial
+        rebuildCaps();
+
+        // Drag controls for all spheres
+        let allSpheres = branches.flatMap(b => b.spheres);
+        const dragControls = new DragControls(allSpheres, camera, renderer.domElement);
+        dragControls.addEventListener('drag', () => {
+            for (let i = 0; i < branches.length; i++) {
+                const branch = branches[i];
+                branch.points = branch.spheres.map(s => s.position.clone());
+                updateBranch(i);
+            }
+            rebuildCaps();
+        });
+        dragControls.addEventListener('dragstart', () => orbitControls.enabled = false);
+        dragControls.addEventListener('dragend', () => orbitControls.enabled = true);
+
+        // Selection on click
+        function onMouseClick(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(allSpheres);
+            if (intersects.length > 0) {
+                // Deselect previous
+                if (selectedSphere) {
+                    selectedSphere.material.color.set(0xff0000);
+                }
+                // Select new
+                selectedSphere = intersects[0].object;
+                selectedSphere.material.color.set(0x00ff00);
+                // Find branch and point index
+                for (let i = 0; i < branches.length; i++) {
+                    const idx = branches[i].spheres.indexOf(selectedSphere);
+                    if (idx !== -1) {
+                        selectedBranchIndex = i;
+                        selectedPointIndex = idx;
+                        document.getElementById('nodeRadius').value = branches[i].radii[idx].toFixed(1);
+                        document.getElementById('branchTension').value = branches[i].tension.toFixed(1);
+                        break;
+                    }
+                }
+            }
+        }
+        window.addEventListener('click', onMouseClick);
+
+        // Realtime radius update
+        document.getElementById('nodeRadius').addEventListener('input', (event) => {
+            if (selectedBranchIndex === -1) return;
+            const value = parseFloat(event.target.value);
+            branches[selectedBranchIndex].radii[selectedPointIndex] = value;
+            updateBranch(selectedBranchIndex);
+            rebuildCaps();
+        });
+
+        // Realtime tension update
+        document.getElementById('branchTension').addEventListener('input', (event) => {
+            if (selectedBranchIndex === -1) return;
+            const value = parseFloat(event.target.value);
+            branches[selectedBranchIndex].tension = value;
+            updateBranch(selectedBranchIndex);
+            rebuildCaps();
+        });
+
+        // Add point after selected
+        document.getElementById('addPointBtn').addEventListener('click', () => {
+            if (selectedBranchIndex === -1 || selectedPointIndex === -1) {
+                alert('Select a control point first.');
+                return;
+            }
+            const branch = branches[selectedBranchIndex];
+            const nextIndex = selectedPointIndex + 1;
+            const prevPoint = branch.points[selectedPointIndex];
+            const nextPoint = branch.points[nextIndex] || prevPoint.clone().add(new THREE.Vector3(1, 0, 0)); // If end, extend
+            const midPoint = prevPoint.clone().lerp(nextPoint, 0.5);
+            const midRadius = (branch.radii[selectedPointIndex] + (branch.radii[nextIndex] || branch.radii[selectedPointIndex])) / 2;
+            branch.points.splice(nextIndex, 0, midPoint);
+            branch.radii.splice(nextIndex, 0, midRadius);
+            // Add new sphere
+            const newSphere = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 16), new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false }));
+            newSphere.position.copy(midPoint);
+            scene.add(newSphere);
+            branch.spheres.splice(nextIndex, 0, newSphere);
+
+            // Update
+            updateBranch(selectedBranchIndex);
+            allSpheres = branches.flatMap(b => b.spheres);
+            dragControls.objects = allSpheres;
+            rebuildCaps();
+        });
+
+        // Add branch from selected
+        document.getElementById('addBranchBtn').addEventListener('click', () => {
+            if (selectedBranchIndex === -1 || selectedPointIndex === -1) {
+                alert('Select a splitting point first.');
+                return;
+            }
+            const branch = branches[selectedBranchIndex];
+            const curve = new THREE.CatmullRomCurve3(branch.points, false, 'catmullrom', branch.tension);
+            const startPoint = branch.points[selectedPointIndex].clone();
+            const t = selectedPointIndex / (branch.points.length - 1);
+            const startTangent = curve.getTangentAt(t).normalize();
+            // Perpendicular direction
+            const up = new THREE.Vector3(0, 1, 0);
+            let branchDir = startTangent.clone().cross(up).normalize();
+            if (branchDir.length() === 0) branchDir = new THREE.Vector3(1, 0, 0).cross(startTangent).normalize();
+            // Randomize slightly
+            branchDir.add(new THREE.Vector3((Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3)).normalize();
+            const branchPoints = [startPoint.clone()];
+            let currentPos = startPoint.clone();
+            for (let i = 1; i < 3; i++) {
+                const pert = new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5);
+                currentPos.add(branchDir.clone().multiplyScalar(i * 2).add(pert));
+                branchPoints.push(currentPos.clone());
+            }
+            const newBranch = addBranch(branchPoints);
+            branches.push(newBranch);
+
+            // Update drag
+            allSpheres = branches.flatMap(b => b.spheres);
+            dragControls.objects = allSpheres;
+            rebuildCaps();
+        });
+
+        // Random cave system generation
+        document.getElementById('randomBtn').addEventListener('click', () => {
+            // Clear existing
+            branches.forEach(b => {
+                scene.remove(b.mesh);
+                scene.remove(b.line);
+                b.spheres.forEach(s => scene.remove(s));
+            });
+            caps.forEach(c => scene.remove(c));
+            caps = [];
+            branches = [];
+            selectedSphere = null;
+            selectedBranchIndex = -1;
+            selectedPointIndex = -1;
+
+            // Generate main branch
+            const numMainPoints = Math.floor(Math.random() * 6) + 5;
+            let mainPoints = [];
+            let currentPos = new THREE.Vector3(0, 0, 0);
+            mainPoints.push(currentPos.clone());
+            for (let i = 1; i < numMainPoints; i++) {
+                const direction = new THREE.Vector3(1, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5).normalize();
+                const length = Math.random() * 2 + 2;
+                currentPos.add(direction.multiplyScalar(length));
+                mainPoints.push(currentPos.clone());
+            }
+            const mainBranch = addBranch(mainPoints);
+            branches.push(mainBranch);
+
+            // Add 1-3 branches
+            const numBranches = Math.floor(Math.random() * 3) + 1;
+            for (let b = 0; b < numBranches; b++) {
+                const startT = Math.random() * 0.8 + 0.1;
+                const curve = new THREE.CatmullRomCurve3(mainPoints);
+                const startPoint = curve.getPointAt(startT);
+                const startTangent = curve.getTangentAt(startT).normalize();
+                // Branch direction perpendicular to tangent
+                const up = new THREE.Vector3(0, 1, 0);
+                let branchDir = startTangent.clone().cross(up).normalize();
+                if (branchDir.lengthSq() === 0) branchDir = new THREE.Vector3(1, 0, 0).cross(startTangent).normalize();
+                // Randomize a bit
+                branchDir.add(new THREE.Vector3((Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3)).normalize();
+                const numBranchPoints = Math.floor(Math.random() * 4) + 3;
+                let branchPoints = [startPoint.clone()];
+                currentPos = startPoint.clone();
+                for (let i = 1; i < numBranchPoints; i++) {
+                    const pert = new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5);
+                    currentPos.add(branchDir.clone().multiplyScalar(Math.random() * 2 + 1).add(pert));
+                    branchPoints.push(currentPos.clone());
+                }
+                branches.push(addBranch(branchPoints));
+            }
+
+            // Update drag controls with new spheres
+            allSpheres = branches.flatMap(b => b.spheres);
+            dragControls.objects = allSpheres;
+            rebuildCaps();
+        });
+
+        // Wireframe toggle
+        document.getElementById('wireframe').addEventListener('change', (event) => {
+            const wireframe = event.target.checked;
+            [floorMaterial, wallMaterial, roofMaterial].forEach(m => {
+                m.wireframe = wireframe;
+                m.needsUpdate = true;
+            });
+        });
+
+        // Texture loader
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.setCrossOrigin('anonymous');
+
+        // Function to update texture
+        function updateTexture(material, originalUrl) {
+            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(originalUrl);
+            textureLoader.load(proxyUrl, (texture) => {
+                texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+                if (material.map) {
+                    texture.repeat.copy(material.map.repeat);
+                } else {
+                    texture.repeat.set(10, 10);
+                }
+                material.map = texture;
+                material.needsUpdate = true;
+            }, undefined, (error) => {
+                console.error('Texture load error:', error);
+            });
+        }
+
+        // Initial textures
+        updateTexture(floorMaterial, 'https://ambientcg.com/get?file=Ground037_1K-JPG_Color.jpg');
+        updateTexture(wallMaterial, 'https://ambientcg.com/get?file=Rock022_1K-JPG_Color.jpg');
+        updateTexture(roofMaterial, 'https://ambientcg.com/get?file=Rock029_1K-JPG_Color.jpg');
+
+        // Texture modal controls
+        document.getElementById('adjustTextureBtn').addEventListener('click', () => {
+            if (floorMaterial.map) {
+                document.getElementById('floorRepeatU').value = floorMaterial.map.repeat.x;
+                document.getElementById('floorRepeatV').value = floorMaterial.map.repeat.y;
+            }
+            if (wallMaterial.map) {
+                document.getElementById('wallRepeatU').value = wallMaterial.map.repeat.x;
+                document.getElementById('wallRepeatV').value = wallMaterial.map.repeat.y;
+            }
+            if (roofMaterial.map) {
+                document.getElementById('roofRepeatU').value = roofMaterial.map.repeat.x;
+                document.getElementById('roofRepeatV').value = roofMaterial.map.repeat.y;
+            }
+            document.getElementById('textureModal').style.display = 'block';
+        });
+
+        document.getElementById('closeModalBtn').addEventListener('click', () => {
+            document.getElementById('textureModal').style.display = 'none';
+        });
+
+        document.getElementById('loadFloorCustom').addEventListener('click', () => {
+            const url = document.getElementById('floorCustomTexture').value;
+            if (url) {
+                updateTexture(floorMaterial, url);
+            }
+        });
+
+        document.getElementById('loadWallCustom').addEventListener('click', () => {
+            const url = document.getElementById('wallCustomTexture').value;
+            if (url) {
+                updateTexture(wallMaterial, url);
+            }
+        });
+
+        document.getElementById('loadRoofCustom').addEventListener('click', () => {
+            const url = document.getElementById('roofCustomTexture').value;
+            if (url) {
+                updateTexture(roofMaterial, url);
+            }
+        });
+
+        document.getElementById('floorTextureSelect').addEventListener('change', (event) => {
+            updateTexture(floorMaterial, event.target.value);
+        });
+
+        document.getElementById('wallTextureSelect').addEventListener('change', (event) => {
+            updateTexture(wallMaterial, event.target.value);
+        });
+
+        document.getElementById('roofTextureSelect').addEventListener('change', (event) => {
+            updateTexture(roofMaterial, event.target.value);
+        });
+
+        document.getElementById('applyTextureBtn').addEventListener('click', () => {
+            if (floorMaterial.map) {
+                const repeatU = parseFloat(document.getElementById('floorRepeatU').value);
+                const repeatV = parseFloat(document.getElementById('floorRepeatV').value);
+                floorMaterial.map.repeat.set(repeatU, repeatV);
+                floorMaterial.map.needsUpdate = true;
+            }
+            if (wallMaterial.map) {
+                const repeatU = parseFloat(document.getElementById('wallRepeatU').value);
+                const repeatV = parseFloat(document.getElementById('wallRepeatV').value);
+                wallMaterial.map.repeat.set(repeatU, repeatV);
+                wallMaterial.map.needsUpdate = true;
+            }
+            if (roofMaterial.map) {
+                const repeatU = parseFloat(document.getElementById('roofRepeatU').value);
+                const repeatV = parseFloat(document.getElementById('roofRepeatV').value);
+                roofMaterial.map.repeat.set(repeatU, repeatV);
+                roofMaterial.map.needsUpdate = true;
+            }
+        });
+
+        // Export button
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            branches.forEach(b => {
+                b.spheres.forEach(s => scene.remove(s));
+                scene.remove(b.line);
+            });
+            caps.forEach(c => scene.remove(c));
+
+            const exporter = new GLTFExporter();
+            exporter.parse(scene, (gltf) => {
+                const blob = new Blob([gltf], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'cave_system.glb';
+                link.click();
+                URL.revokeObjectURL(url);
+            }, (error) => {
+                console.error('Export error:', error);
+            }, { binary: true });
+
+            branches.forEach(b => {
+                b.spheres.forEach(s => scene.add(s));
+                scene.add(b.line);
+            });
+            caps.forEach(c => scene.add(c));
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            orbitControls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // Handle resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'95fb5e1e8ebd8c84',t:'MTc1MjYwNDYxMC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'95fb60bdec7da584',t:'MTc1MjYwNDcxNy4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'95fb9332cec2424a',t:'MTc1MjYwNjc4NC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'95fba240bae06a5b',t:'MTc1MjYwNzQwMS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'95fba457585e6a5b',t:'MTc1MjYwNzQ4Ni4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
