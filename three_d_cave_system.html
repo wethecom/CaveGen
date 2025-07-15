@@ -30,10 +30,12 @@
         <button id="exportBtn">Export to GLB</button>
         <br>
         <label for="nodeRadius">Node Radius (live):</label>
-        <input type="number" id="nodeRadius" step="0.1" min="0.1" value="0.5">
+        <input type="range" id="nodeRadius" step="0.01" min="0.1" max="2" value="0.5">
+        <span id="nodeRadiusValue">0.5</span>
         <br>
         <label for="branchTension">Branch Tension (live):</label>
-        <input type="number" id="branchTension" step="0.1" min="0" max="1" value="0.5">
+        <input type="range" id="branchTension" step="0.01" min="0" max="1" value="0.5">
+        <span id="branchTensionValue">0.5</span>
         <br>
         <input type="checkbox" id="wireframe"> Wireframe Mode (for editing)
         <p>Click a red sphere to select a control point (turns green).</p>
@@ -46,13 +48,13 @@
                 <h4>Floor Texture</h4>
                 <label for="floorTextureSelect">Choose Preset Texture:</label>
                 <select id="floorTextureSelect">
-                    <option value="https://ambientcg.com/get?file=Ground037_1K-JPG_Color.jpg">Dirt</option>
-                    <option value="https://ambientcg.com/get?file=Rock029_1K-JPG_Color.jpg">Rock</option>
-                    <option value="https://ambientcg.com/get?file=Rock022_1K-JPG_Color.jpg">Cave Wall</option>
+                    <option value="floor.jpg">Floor</option>
+                    <option value="roof.jpg">Roof</option>
+                    <option value="walls.jpg">Cave Wall</option>
                 </select>
                 <br>
                 <label for="floorCustomTexture">Or Enter Custom Texture URL:</label>
-                <input type="text" id="floorCustomTexture" placeholder="Enter texture URL">
+                <input type="text" id="floorCustomTexture" placeholder="floor.jpg" value="floor.jpg">
                 <button id="loadFloorCustom">Load Custom</button>
                 <br>
                 <label for="floorRepeatU">Repeat U:</label>
@@ -64,13 +66,13 @@
                 <h4>Wall Texture</h4>
                 <label for="wallTextureSelect">Choose Preset Texture:</label>
                 <select id="wallTextureSelect">
-                    <option value="https://ambientcg.com/get?file=Rock022_1K-JPG_Color.jpg">Cave Wall</option>
-                    <option value="https://ambientcg.com/get?file=Rock029_1K-JPG_Color.jpg">Rock</option>
-                    <option value="https://ambientcg.com/get?file=Ground037_1K-JPG_Color.jpg">Dirt</option>
+                    <option value="walls.jpg">Cave Wall</option>
+                    <option value="roof.jpg">Rock</option>
+                    <option value="floor.jpg">Dirt</option>
                 </select>
                 <br>
                 <label for="wallCustomTexture">Or Enter Custom Texture URL:</label>
-                <input type="text" id="wallCustomTexture" placeholder="Enter texture URL">
+                <input type="text" id="wallCustomTexture" placeholder="walls.jpg" value="walls.jpg">
                 <button id="loadWallCustom">Load Custom</button>
                 <br>
                 <label for="wallRepeatU">Repeat U:</label>
@@ -82,13 +84,13 @@
                 <h4>Roof Texture</h4>
                 <label for="roofTextureSelect">Choose Preset Texture:</label>
                 <select id="roofTextureSelect">
-                    <option value="https://ambientcg.com/get?file=Rock029_1K-JPG_Color.jpg">Rock</option>
-                    <option value="https://ambientcg.com/get?file=Ground037_1K-JPG_Color.jpg">Dirt</option>
-                    <option value="https://ambientcg.com/get?file=Rock022_1K-JPG_Color.jpg">Cave Wall</option>
+                    <option value="walls.jpg">Cave Wall</option>
+                    <option value="roof.jpg">Rock</option>
+                    <option value="floor.jpg">Dirt</option>
                 </select>
                 <br>
                 <label for="roofCustomTexture">Or Enter Custom Texture URL:</label>
-                <input type="text" id="roofCustomTexture" placeholder="Enter texture URL">
+                <input type="text" id="roofCustomTexture" placeholder="roof.jpg" value="roof.jpg">
                 <button id="loadRoofCustom">Load Custom</button>
                 <br>
                 <label for="roofRepeatU">Repeat U:</label>
@@ -399,7 +401,9 @@
                         selectedBranchIndex = i;
                         selectedPointIndex = idx;
                         document.getElementById('nodeRadius').value = branches[i].radii[idx].toFixed(1);
+                        document.getElementById('nodeRadiusValue').textContent = branches[i].radii[idx].toFixed(2);
                         document.getElementById('branchTension').value = branches[i].tension.toFixed(1);
+                        document.getElementById('branchTensionValue').textContent = branches[i].tension.toFixed(2);
                         break;
                     }
                 }
@@ -411,6 +415,7 @@
         document.getElementById('nodeRadius').addEventListener('input', (event) => {
             if (selectedBranchIndex === -1) return;
             const value = parseFloat(event.target.value);
+            document.getElementById('nodeRadiusValue').textContent = value.toFixed(2);
             branches[selectedBranchIndex].radii[selectedPointIndex] = value;
             updateBranch(selectedBranchIndex);
             rebuildCaps();
@@ -420,6 +425,7 @@
         document.getElementById('branchTension').addEventListener('input', (event) => {
             if (selectedBranchIndex === -1) return;
             const value = parseFloat(event.target.value);
+            document.getElementById('branchTensionValue').textContent = value.toFixed(2);
             branches[selectedBranchIndex].tension = value;
             updateBranch(selectedBranchIndex);
             rebuildCaps();
@@ -559,8 +565,11 @@
 
         // Function to update texture
         function updateTexture(material, originalUrl) {
-            const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(originalUrl);
-            textureLoader.load(proxyUrl, (texture) => {
+            let url = originalUrl;
+            if (/^https?:\/\//i.test(originalUrl)) {
+                url = 'https://corsproxy.io/?' + encodeURIComponent(originalUrl);
+            }
+            textureLoader.load(url, (texture) => {
                 texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
                 if (material.map) {
                     texture.repeat.copy(material.map.repeat);
@@ -575,9 +584,9 @@
         }
 
         // Initial textures
-        updateTexture(floorMaterial, 'https://ambientcg.com/get?file=Ground037_1K-JPG_Color.jpg');
-        updateTexture(wallMaterial, 'https://ambientcg.com/get?file=Rock022_1K-JPG_Color.jpg');
-        updateTexture(roofMaterial, 'https://ambientcg.com/get?file=Rock029_1K-JPG_Color.jpg');
+        updateTexture(floorMaterial, 'floor.jpg');
+        updateTexture(wallMaterial, 'walls.jpg');
+        updateTexture(roofMaterial, 'roof.jpg');
 
         // Texture modal controls
         document.getElementById('adjustTextureBtn').addEventListener('click', () => {
